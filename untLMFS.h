@@ -106,7 +106,7 @@ public:
 	String Rsn;//이동사유
 	String RegDt;//이동일자
     int Depth;
-	TPoint Pos;
+	TRect Rect;
     TNodeKind NodeKind;
 
     __fastcall TDepthLabel()
@@ -114,7 +114,7 @@ public:
 		Rsn = L"";
 		RegDt = L"";
         Depth = 0;
-        Pos = Point(0, 0);
+        Rect = Classes::Rect(0, 0, 0, 0);
     }
 };
 
@@ -124,7 +124,19 @@ struct TNodeTheme
 	TColor BgColor;
 	TColor EdgeColor;
 	TColor FontColor;
-    bool Rounded;
+	bool Rounded;
+};
+
+//----------------------------------------------------------
+//ZoomIn/ZoomOut//
+struct TRenderContext
+{
+	TCanvas *Canvas;
+	double Zoom;
+	int OffsetX;
+	int OffsetY;
+	int BaseCornerRadius;
+	bool DrawAttr;
 };
 
 //----------------------------------------------------------
@@ -134,7 +146,7 @@ __published:
     TScrollBox *ScrollBox1;
     TPaintBox *PaintBox1;
 	TPanel *pnlTool;
-	TButton *btnSavePng;
+	TButton *btnSave;
 	TCheckBox *chkAttr;
 	TStringGrid *StringGrid1;
 	TCheckBox *chkMain;
@@ -174,6 +186,7 @@ __published:
 	TImage *btnColorSubBg;
 	TImage *btnColorSubEdge;
 	TImage *btnColorSubFont;
+	TSaveDialog *SaveDialog1;
 
     void __fastcall FormCreate(TObject *Sender);
 	void __fastcall FormDestroy(TObject *Sender);
@@ -187,7 +200,7 @@ __published:
         TShiftState Shift, int X, int Y);
 	void __fastcall chkAttrClick(TObject *Sender);
 	void __fastcall StringGrid1SelectCell(TObject *Sender, int ACol, int ARow, bool &CanSelect);
-	void __fastcall btnSavePngClick(TObject *Sender);
+	void __fastcall btnSaveClick(TObject *Sender);
 	void __fastcall StringGrid1DrawCell(TObject *Sender, int ACol, int ARow, TRect &Rect,
           TGridDrawState State);
 	void __fastcall chkMainClick(TObject *Sender);
@@ -196,6 +209,8 @@ __published:
 	void __fastcall btnDiagramSettingCloseClick(TObject *Sender);
 	void __fastcall btnSettingSaveClick(TObject *Sender);
 	void __fastcall pnlColorClick(TObject *Sender);
+	void __fastcall FormMouseWheel(TObject *Sender, TShiftState Shift, int WheelDelta,
+          TPoint &MousePos, bool &Handled);
 
 
 private:
@@ -229,6 +244,24 @@ private:
 	String FMainJibun;          // 검색 메인 JIBUN
 	std::vector<TFlowRow> FRows;
 
+
+	//----------------------------------------------------------
+	// 다이어그램 노드, Level 박스 크기 등//
+	//----------------------------------------------------------
+	int NodeW;
+//	int NodeH1;
+//	int NodeH2;
+	int LeftM;
+//	int TopM;
+	int GapX;
+//	int GapY;
+//	int LabelW;
+//	int LabelH;
+//	int RightM;
+//	int BottomM;
+	void __fastcall funcSetNodeBox();
+
+
 	//해당되는 PNU의 DB Query 레코드 담긴 파일 읽기(LandArchive에서 생성 후 호출)//
 	void __fastcall LoadDiagramData();
 	bool __fastcall LoadFlowCsv(const String &AFileName, std::vector<TFlowRow> &FRows);
@@ -251,6 +284,7 @@ private:
     bool __fastcall NeedsJump(TDiagramLink *A, TDiagramLink *B);
 	void __fastcall ResolveJumpFlags();
 
+	TParcelNode* __fastcall FindLatestNodeBeforeDepth(const String &APnu, int ADepth);
 	void __fastcall AnalyzeRowsToDiagram(const std::vector<TFlowRow> &FRows);
 	//---------------------------------------------------------------------------
 	//---------------------------------------------------------------------------
@@ -258,11 +292,11 @@ private:
 	void __fastcall BuildLayout();
     void __fastcall UpdateCanvasSize();
 
-    void __fastcall DrawNode(TCanvas *C, TParcelNode *N);
-    void __fastcall DrawLink(TCanvas *C, TDiagramLink *L);
-    void __fastcall DrawDepthLabel(TCanvas *C, TDepthLabel *L);
-    void __fastcall DrawArrow(TCanvas *C, int x1, int y1, int x2, int y2);
-    void __fastcall DrawJumpArc(TCanvas *C, int X, int Y);
+	void __fastcall DrawNode(const TRenderContext &RC, TParcelNode *N);
+	void __fastcall DrawLink(const TRenderContext &RC, TDiagramLink *L);
+	void __fastcall DrawDepthLabel(const TRenderContext &RC, TDepthLabel *L);
+	void __fastcall DrawArrow(const TRenderContext &RC, int x1, int y1, int x2, int y2);
+    void __fastcall DrawJumpArc(const TRenderContext &RC, int X, int Y);
     int __fastcall HitTestNode(int X, int Y);
     
 	//---------------------------------------------------------
@@ -334,7 +368,34 @@ private:
 	void __fastcall ApplyToOwner();
 
 
-public:
+	//---------------------------------------------------------------------------
+	// ZoomIn/ZoomOut
+	//---------------------------------------------------------------------------
+	double FZoom;
+	int FOffsetX;
+	int FOffsetY;
+	int FDiagramWidth;
+	int FDiagramHeight;
+	void __fastcall RenderDiagram(TCanvas *C, double AZoom,
+		int AOffsetX, int AOffsetY, bool ADrawAttr);
+	int __fastcall SX(int X, const TRenderContext &RC) const;
+	int __fastcall SY(int Y, const TRenderContext &RC) const;
+	TRect __fastcall ScaleRect(const TRect &R, const TRenderContext &RC) const;
+	int __fastcall ScaleValue(int V, const TRenderContext &RC, int AMin) const;
+	int __fastcall ScaleFont(int baseSize, const TRenderContext &RC,
+		int minSizeScreen, int minSizePrint, int maxSize) const;
+	int __fastcall IRound(double x) const;
+	void __fastcall PrepareTextStyle(TCanvas *C, TColor ATextColor);
+
+
+	//---------------------------------------------------------------------------
+	// Microsoft to PDF
+	//---------------------------------------------------------------------------
+	void __fastcall ExportToPdfByPrinter();
+	//bool __fastcall PrintToPdfDirect(const String &APdfFileName);
+
+
+public:
     __fastcall TfrmLMFS(TComponent* Owner);
 };
 

@@ -21,6 +21,11 @@
 
 #include <IniFiles.hpp>//ini 읽기
 
+//for PDF Printer
+#include <Printers.hpp>
+#include <SysUtils.hpp>
+#include <Windows.hpp>
+
 #pragma package(smart_init)
 #pragma resource "*.dfm"
 
@@ -99,12 +104,26 @@ void __fastcall TfrmLMFS::FormCreate(TObject *Sender)
 	//지번목록 구성 초기화//
 	CreateGrid();
 
-
 	//INI 읽기 - 다이어그램 설정정보//
 	LoadThemesFromIni();
 	//다이어그램 설정 화면 위치 Setting//
 	pnlDiagramSetting->Left = (this->Width - pnlDiagramSetting->Width)/2;
 	pnlDiagramSetting->Top = (this->Height - pnlDiagramSetting->Height)/2;
+
+
+	//---------------------------------------------------------------------------
+	// ZoomIn/ZoomOut
+	//---------------------------------------------------------------------------
+	FZoom = 1.0;
+	FOffsetX = 20;
+	FOffsetY = 20;
+	FDiagramWidth = 1400;
+	FDiagramHeight = 860;
+
+	//----------------------------------------------------------
+	// 다이어그램 노드, Level 박스 크기 등//
+	//----------------------------------------------------------
+	funcSetNodeBox();
 }
 
 //----------------------------------------------------------
@@ -143,7 +162,29 @@ void __fastcall TfrmLMFS::FormShow(TObject *Sender)
 		FMainPnu = DEBUGPNU;
 
 	LoadDiagramData();
+
+	ScrollBox1->SetFocus();
 }
+
+
+//----------------------------------------------------------
+// 다이어그램 노드, Level 박스 크기 등//
+//----------------------------------------------------------
+void __fastcall TfrmLMFS::funcSetNodeBox()
+{
+	NodeW = 140;
+//	NodeH1 = 34;
+//	NodeH2 = 56;
+	LeftM = 40;
+//	TopM  = 40;
+	GapX  = 280;
+//	GapY  = 20;
+//	LabelW  = NodeW - 10;
+//	LabelH  = NodeH1;
+//	RightM  = 80;
+//	BottomM = 80;
+}
+
 
 //---------------------------------------------------------------------------
 //해당되는 PNU의 DB Query 레코드 담긴 파일 읽기(LandArchive에서 생성 후 호출)//
@@ -275,7 +316,7 @@ String __fastcall TfrmLMFS::MakeAttr(const TFlowRow &R, bool AUseAfter)
 //---------------------------------------------------------------------------
 String __fastcall TfrmLMFS::MakeRsnText(const String &ARsn)
 {
-    if (ARsn == L"10") return L"등록전환";
+	if (ARsn == L"10") return L"등록전환";
     if (ARsn == L"20") return L"분할";
     if (ARsn == L"30") return L"합병";
     if (ARsn == L"40") return L"지목변경";
@@ -345,7 +386,7 @@ TParcelNode* __fastcall TfrmLMFS::AddOrGetNode(int ADepth, const String &APnu,
 
 	TParcelNode *N = new TParcelNode();
     N->Key = key;
-    N->Pnu = APnu;
+	N->Pnu = APnu;
 	N->Caption = AJibun;//MakeCaption(APnu);
     N->Attr = AAttr;
     N->Depth = ADepth;
@@ -415,7 +456,7 @@ bool __fastcall TfrmLMFS::NeedsJump(TDiagramLink *A, TDiagramLink *B)
     int bx1 = B->FromNode->Rect.right;
     int by1 = (B->FromNode->Rect.top + B->FromNode->Rect.bottom) / 2;
     int bx2 = B->ToNode->Rect.left;
-    int by2 = (B->ToNode->Rect.top + B->ToNode->Rect.bottom) / 2;
+	int by2 = (B->ToNode->Rect.top + B->ToNode->Rect.bottom) / 2;
     int bmid = (bx1 + bx2) / 2;
 
 	int bLeft   = (bx1 < bx2) ? bx1 : bx2;
@@ -450,7 +491,7 @@ void __fastcall TfrmLMFS::ResolveJumpFlags()
 
         for (int j = 0; j < i; j++)
         {
-            TDiagramLink *B = (TDiagramLink*)FLinks->Items[j];
+			TDiagramLink *B = (TDiagramLink*)FLinks->Items[j];
 
             if (A->GroupKey == B->GroupKey)
                 continue; // 같은 이벤트 그룹은 jump 안 함
@@ -462,6 +503,27 @@ void __fastcall TfrmLMFS::ResolveJumpFlags()
             }
         }
     }
+}
+
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+TParcelNode* __fastcall TfrmLMFS::FindLatestNodeBeforeDepth(const String &APnu, int ADepth)
+{
+	TParcelNode *best = NULL;
+
+	for (int i = 0; i < FNodes->Count; i++)
+	{
+		TParcelNode *N = (TParcelNode*)FNodes->Items[i];
+		if (N->Pnu != APnu)
+			continue;
+		if (N->Depth >= ADepth)
+			continue;
+
+		if (!best || N->Depth > best->Depth)
+			best = N;
+	}
+
+	return best;
 }
 
 //---------------------------------------------------------------------------
@@ -494,8 +556,15 @@ void __fastcall TfrmLMFS::AnalyzeRowsToDiagram(const std::vector<TFlowRow> &FRow
 			AddDepthLabel(rsnName, funcChangeDateFormatString(R.RegDt), depth);
 
 			//
-			TParcelNode *fromNode = AddOrGetNode(depth, R.BfPnu, R.BfJibun, MakeAttr(R, false));
-			TParcelNode *toNode   = AddOrGetNode(depth + 1, R.AfPnu, R.AfJibun, MakeAttr(R, true));
+//			TParcelNode *fromNode = AddOrGetNode(depth, R.BfPnu, R.BfJibun, MakeAttr(R, false));
+//			TParcelNode *toNode   = AddOrGetNode(depth + 1, R.AfPnu, R.AfJibun, MakeAttr(R, true));
+			//from(이동전) 노드//
+			TParcelNode *fromNode = FindLatestNodeBeforeDepth(R.BfPnu, depth);
+			// 이전에 그려진 같은 PNU 노드가 없을 때만 새로 생성
+			if (!fromNode)
+				fromNode = AddOrGetNode(depth, R.BfPnu, R.BfJibun, MakeAttr(R, false));
+			//to(이동후) 노드//
+			TParcelNode *toNode = AddOrGetNode(depth + 1, R.AfPnu, R.AfJibun, MakeAttr(R, true));
 
 			AddLink(fromNode, toNode, /*label, */rsnName, R.RegDt);
 		}
@@ -522,34 +591,62 @@ void __fastcall TfrmLMFS::RefreshDiagram()
 //---------------------------------------------------------------------------
 void __fastcall TfrmLMFS::BuildLayout()
 {
-	const int NodeW = 140;
+//	const int NodeW = 140;
 	const int NodeH1 = 34;
 	const int NodeH2 = 56;
-	const int LeftM = 40;
+//	const int LeftM = 40;
 	const int TopM  = 40;
-	const int GapX  = 280;
+//	const int GapX  = 280;
 	const int GapY  = 20;
+    const int LabelW  = NodeW - 10;
+    const int LabelH  = NodeH1;
+    const int RightM  = 80;
+    const int BottomM = 80;
 
 	bool showAttr = chkAttr->Checked;
+    int nodeH = showAttr ? NodeH2 : NodeH1;
+
+    int maxRight = 0;
+    int maxBottom = 0;
 
 	for (int i = 0; i < FNodes->Count; i++)
 	{
 		TParcelNode *N = (TParcelNode*)FNodes->Items[i];
 
-		int nodeH = showAttr ? NodeH2 : NodeH1;
 		int x = LeftM + N->Depth * GapX;
 		int y = TopM + N->Lane * (nodeH + GapY);
 
 		N->Rect = Classes::Rect(x, y, x + NodeW, y + nodeH);
+
+        if (N->Rect.right > maxRight)
+			maxRight = N->Rect.right;
+        if (N->Rect.bottom > maxBottom)
+            maxBottom = N->Rect.bottom;
 	}
 
 	for (int i = 0; i < FLabels->Count; i++)
 	{
 		TDepthLabel *L = (TDepthLabel*)FLabels->Items[i];
-		int x = LeftM + L->Depth * GapX + NodeW + 10;
+
+		int x = LeftM + L->Depth * GapX + NodeW + 5;//10;
 		int y = 14;
-        L->Pos = Point(x, y);
+
+        L->Rect = Classes::Rect(x, y, x + LabelW, y + LabelH);
+
+        if (L->Rect.right > maxRight)
+            maxRight = L->Rect.right;
+        if (L->Rect.bottom > maxBottom)
+            maxBottom = L->Rect.bottom;
     }
+
+    FDiagramWidth = maxRight + RightM;
+    FDiagramHeight = maxBottom + BottomM;
+
+    if (FDiagramWidth < ScrollBox1->ClientWidth)
+        FDiagramWidth = ScrollBox1->ClientWidth;
+
+    if (FDiagramHeight < ScrollBox1->ClientHeight)
+        FDiagramHeight = ScrollBox1->ClientHeight;
 
     UpdateCanvasSize();
 }
@@ -558,55 +655,91 @@ void __fastcall TfrmLMFS::BuildLayout()
 //---------------------------------------------------------------------------
 void __fastcall TfrmLMFS::UpdateCanvasSize()
 {
+	// ZoomIn/ZoomOut
+	PaintBox1->Width  = FOffsetX * 2 + int(IRound(FDiagramWidth * FZoom));
+	PaintBox1->Height = FOffsetY * 2 + int(IRound(FDiagramHeight * FZoom));
+/*
 	int maxX = 1400;
-    int maxY = 860;
+	int maxY = 860;
 
-    for (int i = 0; i < FNodes->Count; i++)
-    {
-        TParcelNode *N = (TParcelNode*)FNodes->Items[i];
-        if (N->Rect.right + 120 > maxX) maxX = N->Rect.right + 120;
-        if (N->Rect.bottom + 120 > maxY) maxY = N->Rect.bottom + 120;
-    }
+	for (int i = 0; i < FNodes->Count; i++)
+	{
+		TParcelNode *N = (TParcelNode*)FNodes->Items[i];
+		if (N->Rect.right + 120 > maxX) maxX = N->Rect.right + 120;
+		if (N->Rect.bottom + 120 > maxY) maxY = N->Rect.bottom + 120;
+	}
 
-    PaintBox1->Width = maxX;
-    PaintBox1->Height = maxY;
+	PaintBox1->Width = maxX;
+	PaintBox1->Height = maxY;
+*/
 }
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
-void __fastcall TfrmLMFS::DrawArrow(TCanvas *C, int x1, int y1, int x2, int y2)
+//void __fastcall TfrmLMFS::DrawArrow(TCanvas *C, int x1, int y1, int x2, int y2)
+void __fastcall TfrmLMFS::DrawArrow(const TRenderContext &RC, int x1, int y1, int x2, int y2)
 {
-    double angle = atan2((double)(y2 - y1), (double)(x2 - x1));
-    int len = 8;
+    TCanvas *C = RC.Canvas;
 
-    double a1 = angle + 3.1415926535 * 0.85;
-    double a2 = angle - 3.1415926535 * 0.85;
+    int sx1 = SX(x1, RC);
+    int sy1 = SY(y1, RC);
+    int sx2 = SX(x2, RC);
+    int sy2 = SY(y2, RC);
 
-    int ax1 = x2 + (int)(cos(a1) * len);
-    int ay1 = y2 + (int)(sin(a1) * len);
-    int ax2 = x2 + (int)(cos(a2) * len);
-    int ay2 = y2 + (int)(sin(a2) * len);
+    double angle = atan2((double)(sy2 - sy1), (double)(sx2 - sx1));
 
-    C->MoveTo(x2, y2); C->LineTo(ax1, ay1);
-    C->MoveTo(x2, y2); C->LineTo(ax2, ay2);
+    int len = ScaleValue(8, RC, 4);
+
+    const double PI = 3.14159265358979323846;
+    double a1 = angle + PI * 0.85;
+    double a2 = angle - PI * 0.85;
+
+	int ax1 = sx2 + (int)IRound(cos(a1) * len);
+    int ay1 = sy2 + (int)IRound(sin(a1) * len);
+
+    int ax2 = sx2 + (int)IRound(cos(a2) * len);
+    int ay2 = sy2 + (int)IRound(sin(a2) * len);
+
+    C->MoveTo(sx2, sy2);
+    C->LineTo(ax1, ay1);
+
+    C->MoveTo(sx2, sy2);
+	C->LineTo(ax2, ay2);
 }
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
-void __fastcall TfrmLMFS::DrawJumpArc(TCanvas *C, int X, int Y)
+//void __fastcall TfrmLMFS::DrawJumpArc(TCanvas *C, int X, int Y)
+void __fastcall TfrmLMFS::DrawJumpArc(const TRenderContext &RC, int X, int Y)
 {
     // 작은 반원 bump
-    C->Arc(X - 8, Y - 8, X + 8, Y + 8, X - 8, Y, X + 8, Y);
+//    C->Arc(X - 8, Y - 8, X + 8, Y + 8, X - 8, Y, X + 8, Y);
+    TCanvas *C = RC.Canvas;
+
+    int sx = SX(X, RC);
+    int sy = SY(Y, RC);
+    int r  = ScaleValue(8, RC, 4);
+
+    C->Arc(
+        sx - r, sy - r,
+        sx + r, sy + r,
+        sx - r, sy,
+        sx + r, sy
+	);
 }
 
-void __fastcall TfrmLMFS::DrawLink(TCanvas *C, TDiagramLink *L)
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+void __fastcall TfrmLMFS::DrawLink(const TRenderContext &RC, TDiagramLink *L)
 {
-    if (!L || !L->FromNode || !L->ToNode) return;
+    if (!L || !L->FromNode || !L->ToNode)
+        return;
 
+    TCanvas *C = RC.Canvas;
 	TRect r1 = L->FromNode->Rect;
 	TRect r2 = L->ToNode->Rect;
 
-	L->IsMain = (FMainPnu == L->FromNode->Pnu || FMainPnu == L->FromNode->Pnu) ? (true):(false);
+    L->IsMain = (FMainPnu == L->FromNode->Pnu || FMainPnu == L->ToNode->Pnu);
 
     int x1 = r1.right;
     int y1 = (r1.top + r1.bottom) / 2;
@@ -616,71 +749,218 @@ void __fastcall TfrmLMFS::DrawLink(TCanvas *C, TDiagramLink *L)
 
 	if(L->IsMain)
 	{
-		C->Pen->Color = (TColor)RGB(237, 125, 49);//(TColor)RGB(0, 0, 255);//Link - Blue
-		C->Pen->Width = 3;
+        C->Pen->Color = TColor(RGB(237, 125, 49));
+        C->Pen->Width = ScaleValue(3, RC, 1);
 	}
 	else
 	{
-		C->Pen->Color = (TColor)RGB(0, 0, 0);//Link - Black
-		C->Pen->Width = 1;
+        C->Pen->Color = TColor(RGB(0, 0, 0));
+        C->Pen->Width = ScaleValue(1, RC, 1);
 	}
 
-    if (!L->IsJump)
+	C->Pen->Style = psSolid;
+
+	//debug
+	if((L->FromNode->Pnu == "4471025021100580004" && L->ToNode->Pnu == "4471025021100580004")
+	|| (L->FromNode->Pnu == "4471025021100710010" && L->ToNode->Pnu == "4471025021100580004"))
+	{
+		int a = 1;
+	}
+
+
+	// 같은 지번을 재사용해서 depth를 건너뛴 경우:
+	// 출발 depth에서 바로 다음 depth 열까지 수평 이동한 후,
+	// 그 지점에서 도착 노드 Y까지 수직으로 내려오고,
+	// 마지막에 도착 노드로 수평 진입
+	if (L->FromNode->Pnu == L->ToNode->Pnu || (L->ToNode->Depth - L->FromNode->Depth > 1))
+	{
+		int bendDepth = L->FromNode->Depth + 1;
+		int bendX = LeftM + bendDepth * GapX;   // 다음 depth 열의 시작 X
+		//my//int enterX = bendX - 10;                // 살짝 왼쪽에서 내려오게 조정 가능
+		//my//int enterX = bendX - NodeW/2;                // 살짝 왼쪽에서 내려오게 조정 가능
+		int enterX = x2 - NodeW/2;                // 살짝 왼쪽에서 내려오게 조정 가능
+
+		C->MoveTo(SX(x1, RC), SY(y1, RC));
+		C->LineTo(SX(enterX, RC), SY(y1, RC));  // 수평
+		C->LineTo(SX(enterX, RC), SY(y2, RC));  // 수직
+		C->LineTo(SX(x2, RC), SY(y2, RC));      // 도착 노드로 수평 진입
+
+		DrawArrow(RC, enterX, y2, x2, y2);
+		return;
+	}
+/*	// 같은 지번이면 수평 연결
+	if (L->FromNode->Pnu == L->ToNode->Pnu)
+	{
+		int yy = (y1 + y2) / 2;
+
+		C->MoveTo(SX(x1, RC), SY(yy, RC));
+		C->LineTo(SX(x2, RC), SY(yy, RC));
+		DrawArrow(RC, x1, yy, x2, yy);
+		return;
+	}
+*/
+/*    // 같은 PNU로 이어지는 유지 링크는 살짝 위로 올려서 표시
+	if (L->FromNode->Pnu == L->ToNode->Pnu)
     {
-        C->MoveTo(x1, y1);
-        C->LineTo(midX, y1);
-        C->LineTo(midX, y2);
-        C->LineTo(x2, y2);
+        int raise = 18;
+        int a = x1 + 20;
+        int b = x2 - 20;
+
+        if (b < a)
+            b = a + 8;
+
+        C->MoveTo(SX(x1, RC), SY(y1, RC));
+        C->LineTo(SX(a, RC), SY(y1, RC));
+        C->LineTo(SX(a, RC), SY(y1 - raise, RC));
+        C->LineTo(SX(b, RC), SY(y2 - raise, RC));
+        C->LineTo(SX(b, RC), SY(y2, RC));
+        C->LineTo(SX(x2, RC), SY(y2, RC));
+
+        DrawArrow(RC, b, y2, x2, y2);
+        return;
+    }
+*/
+	if (!L->IsJump)
+    {
+        C->MoveTo(SX(x1, RC), SY(y1, RC));
+        C->LineTo(SX(midX, RC), SY(y1, RC));
+        C->LineTo(SX(midX, RC), SY(y2, RC));
+        C->LineTo(SX(x2, RC), SY(y2, RC));
     }
     else
     {
-        int jumpX = midX;
-        int jumpY = y2;
+		int jumpX = midX;
+		int jumpY = y2;
+		int gap = ScaleValue(10, RC, 4);
 
-        C->MoveTo(x1, y1);
-        C->LineTo(midX - 10, y1);
-        C->LineTo(midX - 10, y2);
-        C->LineTo(jumpX - 10, jumpY);
-        DrawJumpArc(C, jumpX, jumpY);
-        C->MoveTo(jumpX + 8, jumpY);
-        C->LineTo(x2, y2);
+		C->MoveTo(SX(x1, RC), SY(y1, RC));
+		C->LineTo(SX(midX, RC) - gap, SY(y1, RC));
+		C->LineTo(SX(midX, RC) - gap, SY(y2, RC));
+		C->LineTo(SX(jumpX, RC) - gap, SY(jumpY, RC));
+
+		DrawJumpArc(RC, jumpX, jumpY);
+
+		C->MoveTo(SX(jumpX, RC) + ScaleValue(8, RC, 3), SY(jumpY, RC));
+		C->LineTo(SX(x2, RC), SY(y2, RC));
+	}
+
+    DrawArrow(RC, midX, y2, x2, y2);
+}
+//void __fastcall TfrmLMFS::DrawLink(TCanvas *C, TDiagramLink *L)
+/*void __fastcall TfrmLMFS::DrawLink(const TRenderContext &RC, TDiagramLink *L)
+{
+    if (!L || !L->FromNode || !L->ToNode)
+        return;
+
+    TCanvas *C = RC.Canvas;
+    TRect r1 = L->FromNode->Rect;
+    TRect r2 = L->ToNode->Rect;
+
+    int x1 = r1.right;
+    int y1 = (r1.top + r1.bottom) / 2;
+    int x2 = r2.left;
+    int y2 = (r2.top + r2.bottom) / 2;
+
+    if (L->IsMain)
+    {
+        C->Pen->Color = TColor(RGB(237, 125, 49));
+        C->Pen->Width = ScaleValue(3, RC, 1);
+    }
+    else
+    {
+        C->Pen->Color = clBlack;
+        C->Pen->Width = ScaleValue(1, RC, 1);
     }
 
-    DrawArrow(C, midX, y2, x2, y2);
+    C->Pen->Style = psSolid;
+
+    // 자기 자신 유지 링크: 일반 링크와 다르게 위로 살짝 들어올려서 보이게 그림
+    if (L->FromNode->Pnu == L->ToNode->Pnu)
+    {
+        int up = 16;
+        int xA = x1 + 18;
+        int xB = x2 - 18;
+
+        if (xB < xA)
+            xB = xA + 10;
+
+        C->MoveTo(SX(x1, RC), SY(y1, RC));
+        C->LineTo(SX(xA, RC), SY(y1, RC));
+        C->LineTo(SX(xA, RC), SY(y1 - up, RC));
+        C->LineTo(SX(xB, RC), SY(y2 - up, RC));
+        C->LineTo(SX(xB, RC), SY(y2, RC));
+        C->LineTo(SX(x2, RC), SY(y2, RC));
+
+        DrawArrow(RC, xB, y2, x2, y2);
+        return;
+    }
+
+    int turnX = x2 - 24;
+    if (turnX < x1 + 20)
+        turnX = x1 + 20;
+
+    if (!L->IsJump)
+    {
+        C->MoveTo(SX(x1, RC), SY(y1, RC));
+        C->LineTo(SX(turnX, RC), SY(y1, RC));
+        C->LineTo(SX(turnX, RC), SY(y2, RC));
+        C->LineTo(SX(x2, RC), SY(y2, RC));
+    }
+    else
+    {
+        int jumpX = turnX;
+        int jumpY = y2;
+        int gap = 10;
+
+        C->MoveTo(SX(x1, RC), SY(y1, RC));
+        C->LineTo(SX(jumpX - gap, RC), SY(y1, RC));
+        C->LineTo(SX(jumpX - gap, RC), SY(y2, RC));
+        DrawJumpArc(RC, jumpX, jumpY);
+        C->MoveTo(SX(jumpX + 8, RC), SY(jumpY, RC));
+        C->LineTo(SX(x2, RC), SY(y2, RC));
 }
 
+    DrawArrow(RC, turnX, y2, x2, y2);
+}
+*/
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
-void __fastcall TfrmLMFS::DrawDepthLabel(TCanvas *C, TDepthLabel *L)
+//void __fastcall TfrmLMFS::DrawDepthLabel(TCanvas *C, TDepthLabel *L)
+void __fastcall TfrmLMFS::DrawDepthLabel(const TRenderContext &RC, TDepthLabel *L)
 {
+    TCanvas *C = RC.Canvas;
 	const TNodeTheme &th = GetThemeByKind(L->NodeKind);
-	TRect R = Classes::Rect(L->Pos.x, L->Pos.y, L->Pos.x + 120, L->Pos.y + 40);
+	TRect R = ScaleRect(L->Rect, RC);
+	//TRect R = Classes::Rect(L->Pos.x, L->Pos.y, L->Pos.x + 120, L->Pos.y + 40);
+	int rr = ScaleValue(RC.BaseCornerRadius, RC, 3);
 
+	//
+	C->Brush->Style = bsClear;
 	C->Pen->Color = th.EdgeColor;
 	C->Brush->Color = th.BgColor;
 	C->Font->Color = th.FontColor;
 	C->Font->Name = L"나눔고딕";
-	C->Font->Size = 10;
+	C->Font->Size = ScaleFont(9, RC, 7, 8, 14);//10;//[Event Depth Label]
 	C->Font->Style = TFontStyles() << fsBold;
 
 	if (th.Rounded)//노드 모서리 round 표시//
-		C->RoundRect(R.left, R.top, R.right, R.bottom, 10, 10);
+		C->RoundRect(R.left, R.top, R.right, R.bottom, rr, rr);
+		//C->RoundRect(R.left, R.top, R.right, R.bottom, 10, 10);
 	else
 		C->Rectangle(R);
 
-	//
-	C->Brush->Style = bsClear;
 
 	//
 	String text = GetDepthLabelText(L);
 
     TRect outerR = R;
-    InflateRect(&outerR, -4, -2);
+	//InflateRect(&outerR, -4, -2);
+	InflateRect(&outerR, -ScaleValue(4, RC, 2), -ScaleValue(2, RC, 1));
 
     UINT flags = DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX;
 
-    SetTextColor(C->Handle, ColorToRGB(th.FontColor));
-    SetBkMode(C->Handle, TRANSPARENT);
+//??//    SetTextColor(C->Handle, ColorToRGB(th.FontColor));
+//??//    SetBkMode(C->Handle, TRANSPARENT);
 
     TRect calcR = outerR;
     DrawTextW(C->Handle, text.c_str(), -1, &calcR, flags | DT_CALCRECT);
@@ -696,13 +976,16 @@ void __fastcall TfrmLMFS::DrawDepthLabel(TCanvas *C, TDepthLabel *L)
 	DrawTextW(C->Handle, text.c_str(), -1, &drawR, flags);
 
 	//
-	C->Brush->Style = bsSolid;
+//??//	C->Brush->Style = bsSolid;
 }
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
-void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
+//void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
+void __fastcall TfrmLMFS::DrawNode(const TRenderContext &RC, TParcelNode *N)
 {
+    if (!N) return;
+
 	if(N->Pnu == FMainPnu)
 	{
 		N->Selected = true;
@@ -716,39 +999,34 @@ void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
 		N->NodeKind = nkSubParcel;
 	}
 
+    TCanvas *C = RC.Canvas;
 	const TNodeTheme &th = GetThemeByKind(N->NodeKind);
+	TRect R = ScaleRect(N->Rect, RC);
+    int rr = ScaleValue(RC.BaseCornerRadius, RC, 3);
 
-
-/*
-	C->Pen->Color = N->Selected ? clRed : clGray;
-	if (N->IsMain)
-		C->Brush->Color = (TColor)0x0060A8FF;   // 메인 PNU만 강조
-	else
-		C->Brush->Color = (TColor)0x00D8D8D8;   // 일반 노드
-	C->Rectangle(N->Rect);
-*/
-
-	C->Brush->Style = bsClear;
-	C->Pen->Width = N->Selected ? 2 : 1;
+    C->Brush->Style = bsSolid;
+    C->Pen->Width = N->Selected ? ScaleValue(2, RC, 1) : ScaleValue(1, RC, 1);
 	C->Pen->Color = th.EdgeColor;
 	C->Brush->Color = th.BgColor;
 	C->Font->Color = th.FontColor;
 	C->Font->Name = L"나눔고딕";
-	C->Font->Size = 10;
+	//C->Font->Size = ScaleValue(10, RC, 8);
+	C->Font->Size = ScaleFont(chkAttr->Checked ? 9 : 10, RC, 7, 8, 16);//[지번노드]속성 표시가 있을 때//
 	C->Font->Style = TFontStyles() << fsBold;
 
-	if (th.Rounded)//노드 모서리 round 표시//
-		C->RoundRect(N->Rect.left, N->Rect.top, N->Rect.right, N->Rect.bottom, 10, 10);
+	if (th.Rounded)
+		C->RoundRect(R.left, R.top, R.right, R.bottom, rr, rr);
 	else
-		C->Rectangle(N->Rect);
+        C->Rectangle(R);
 
-    //
 	String text = N->Caption;
-    if (chkAttr->Checked && !Trim(N->Attr).IsEmpty())
+    if (RC.DrawAttr && !Trim(N->Attr).IsEmpty())
         text += L"\r\n" + N->Attr;
 
-	TRect outerR = N->Rect;
-	InflateRect(&outerR, -4, -2);
+	PrepareTextStyle(C, th.FontColor);
+
+    TRect outerR = R;
+    InflateRect(&outerR, -ScaleValue(4, RC, 2), -ScaleValue(2, RC, 1));
 
 	UINT flags = DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX;
 
@@ -757,10 +1035,7 @@ void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
 
 	int textH = calcR.bottom - calcR.top;
 	int boxH  = outerR.bottom - outerR.top;
-	int yOff  = 0;
-
-	if (textH < boxH)
-		yOff = (boxH - textH) / 2;
+    int yOff  = (textH < boxH) ? ((boxH - textH) / 2) : 0;
 
 	TRect drawR = outerR;
 	drawR.top += yOff;
@@ -775,7 +1050,10 @@ void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
 //---------------------------------------------------------------------------
 void __fastcall TfrmLMFS::PaintBox1Paint(TObject *Sender)
 {
-    TCanvas *C = PaintBox1->Canvas;
+	// ZoomIn/ZoomOut
+    RenderDiagram(PaintBox1->Canvas, FZoom, FOffsetX, FOffsetY, chkAttr->Checked);
+/*
+	TCanvas *C = PaintBox1->Canvas;
 
     C->Brush->Color = clWhite;
     C->FillRect(Classes::Rect(0, 0, PaintBox1->Width, PaintBox1->Height));
@@ -806,6 +1084,141 @@ void __fastcall TfrmLMFS::PaintBox1Paint(TObject *Sender)
 		//C->Font->Color = clBlack;
 		DrawNode(C, (TParcelNode*)FNodes->Items[i]);
 	}
+*/
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+void __fastcall TfrmLMFS::RenderDiagram(TCanvas *C, double AZoom,
+    int AOffsetX, int AOffsetY, bool ADrawAttr)
+{
+    TRenderContext RC;
+    RC.Canvas = C;
+    RC.Zoom = AZoom;
+    RC.OffsetX = AOffsetX;
+    RC.OffsetY = AOffsetY;
+    RC.BaseCornerRadius = 10;
+    RC.DrawAttr = ADrawAttr;
+
+    C->Brush->Color = clWhite;
+    C->FillRect(Rect(0, 0, PaintBox1->Width, PaintBox1->Height));
+
+    C->Pen->Color = TColor(0x00EFEFEF);
+    C->Pen->Width = 1;
+    C->Pen->Style = psSolid;
+
+    const int GridStep = 25;
+    for (int x = 0; x < PaintBox1->Width; x += GridStep)
+    {
+        C->MoveTo(x, 0);
+        C->LineTo(x, PaintBox1->Height);
+    }
+
+    for (int y = 0; y < PaintBox1->Height; y += GridStep)
+    {
+        C->MoveTo(0, y);
+        C->LineTo(PaintBox1->Width, y);
+    }
+
+    for (int i = 0; i < FLinks->Count; i++)
+        DrawLink(RC, (TDiagramLink*)FLinks->Items[i]);
+
+    for (int i = 0; i < FLabels->Count; i++)
+        DrawDepthLabel(RC, (TDepthLabel*)FLabels->Items[i]);
+
+    for (int i = 0; i < FNodes->Count; i++)
+        DrawNode(RC, (TParcelNode*)FNodes->Items[i]);
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+int __fastcall TfrmLMFS::SX(int X, const TRenderContext &RC) const
+{
+	return RC.OffsetX + int(IRound(X * RC.Zoom));
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+int __fastcall TfrmLMFS::SY(int Y, const TRenderContext &RC) const
+{
+	return RC.OffsetY + int(IRound(Y * RC.Zoom));
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+TRect __fastcall TfrmLMFS::ScaleRect(const TRect &R, const TRenderContext &RC) const
+{
+    return Rect(
+        SX(R.left, RC),
+        SY(R.top, RC),
+        SX(R.right, RC),
+        SY(R.bottom, RC)
+    );
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+int __fastcall TfrmLMFS::ScaleValue(int V, const TRenderContext &RC, int AMin) const
+{
+    int n = int(IRound(V * RC.Zoom));
+    return (n < AMin) ? AMin : n;
+}
+
+//---------------------------------------------------------------------------
+// ZoomIn/ZoomOut
+//---------------------------------------------------------------------------
+int __fastcall TfrmLMFS::ScaleFont(int baseSize, const TRenderContext &RC,
+	int minSizeScreen, int minSizePrint, int maxSize) const
+{
+/*
+	int fontSize = 10;
+	if (RC.Zoom <= 0.60) fontSize = 7;
+	else if (RC.Zoom <= 0.85) fontSize = 8;
+	else if (RC.Zoom <= 1.20) fontSize = 10;
+	else if (RC.Zoom <= 1.80) fontSize = 11;
+	else if (RC.Zoom <= 2.50) fontSize = 12;
+	else fontSize = 13;
+*/
+
+/*	double z = RC.Zoom;
+
+    // 완전 선형보다 약간 완만하게
+    double f = sqrt(z);
+
+    int n = int(IRound(baseSize * f));
+    if (n < minSize) n = minSize;
+    if (n > maxSize) n = maxSize;
+    return n;
+*/
+    int minSize = minSizeScreen;
+    if (RC.Canvas == Printer()->Canvas)
+		minSize = minSizePrint;
+    //
+	int n = int(IRound(baseSize * sqrt(RC.Zoom)));
+    if (n < minSize) n = minSize;
+    if (n > maxSize) n = maxSize;
+	return n;
+}
+
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+int __fastcall TfrmLMFS::IRound(double x) const
+{
+	return (x >= 0.0) ? (int)floor(x + 0.5) : (int)ceil(x - 0.5);
+}
+
+//---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+void __fastcall TfrmLMFS::PrepareTextStyle(TCanvas *C, TColor ATextColor)
+{
+    C->Font->Color = ATextColor;
+    SetTextColor(C->Handle, ColorToRGB(ATextColor));
+    SetBkMode(C->Handle, TRANSPARENT);
 }
 
 //---------------------------------------------------------------------------
@@ -1068,21 +1481,28 @@ void __fastcall TfrmLMFS::SaveDiagramToPng(const String &AFileName)
     TPngImage *png = new TPngImage();
     try
     {
-        bmp->PixelFormat = pf24bit;
-        bmp->Width = PaintBox1->Width;
-        bmp->Height = PaintBox1->Height;
+		TRenderContext RC;
+		RC.Canvas = bmp->Canvas;
+        RC.Zoom = FZoom;
+        RC.OffsetX = FOffsetX;
+		RC.OffsetY = FOffsetY;
+		RC.BaseCornerRadius = 10;
+		RC.DrawAttr = chkAttr->Checked;
 
+		bmp->PixelFormat = pf24bit;
+        bmp->Width = PaintBox1->Width;
+		bmp->Height = PaintBox1->Height;
         bmp->Canvas->Brush->Color = clWhite;
         bmp->Canvas->FillRect(Rect(0, 0, bmp->Width, bmp->Height));
 
         for (int i = 0; i < FLinks->Count; i++)
-			DrawLink(bmp->Canvas, (TDiagramLink*)FLinks->Items[i]);
+			DrawLink(RC, (TDiagramLink*)FLinks->Items[i]);
 
         for (int i = 0; i < FLabels->Count; i++)
-            DrawDepthLabel(bmp->Canvas, (TDepthLabel*)FLabels->Items[i]);
+			DrawDepthLabel(RC, (TDepthLabel*)FLabels->Items[i]);
 
         for (int i = 0; i < FNodes->Count; i++)
-			DrawNode(bmp->Canvas, (TParcelNode*)FNodes->Items[i]);
+			DrawNode(RC, (TParcelNode*)FNodes->Items[i]);
 
         png->Assign(bmp);
         png->SaveToFile(AFileName);
@@ -1240,7 +1660,7 @@ void __fastcall TfrmLMFS::StringGrid1SelectCell(TObject *Sender, int ACol, int A
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
-void __fastcall TfrmLMFS::btnSavePngClick(TObject *Sender)
+/*void __fastcall TfrmLMFS::btnSavePngClick(TObject *Sender)
 {
 	AnsiString  asFileName = DOWNLOADPATH + FMainJibun + ".png";
 	//
@@ -1259,8 +1679,129 @@ void __fastcall TfrmLMFS::btnSavePngClick(TObject *Sender)
 
 	Application->MessageBox(sMsg.c_str(), L"알림", MB_OK);
 }
+*/
 //---------------------------------------------------------------------------
+void __fastcall TfrmLMFS::btnSaveClick(TObject *Sender)
+{
+/*	String pdfFile = ExtractFilePath(Application->ExeName) +
+					 L"DOWNLOAD\\" + FMainJibun + L".pdf";
 
+	ForceDirectories(ExtractFilePath(pdfFile));
+
+	if (PrintToPdfDirect(pdfFile))
+	{
+		Application->MessageBox(L"PDF 저장이 완료되었습니다.",
+								L"PDF 출력", MB_OK | MB_ICONINFORMATION);
+	}
+*/
+
+	ExportToPdfByPrinter();
+	msg += L"[PDF]\r\n";
+	msg += L"Microsoft Print to PDF 저장창에서 파일명과 위치를 선택해 저장해 주세요.\r\n\r\n";
+	ShowMessage(msg);
+}
+
+//---------------------------------------------------------------------------
+void __fastcall TfrmLMFS::ExportToPdfByPrinter()
+{
+    int pdfIdx = Printer()->Printers->IndexOf(L"Microsoft Print to PDF");
+    if (pdfIdx < 0)
+    {
+        ShowMessage(L"Microsoft Print to PDF 프린터를 찾을 수 없습니다.");
+        return;
+    }
+
+    Printer()->PrinterIndex = pdfIdx;
+    Printer()->Orientation = poLandscape;
+    Printer()->Title = L"Diagram Export";
+
+    Printer()->BeginDoc();
+    try
+    {
+        const int margin = 120;
+
+        int pageW = Printer()->PageWidth  - margin * 2;
+        int pageH = Printer()->PageHeight - margin * 2;
+
+        if (pageW <= 0 || pageH <= 0)
+            throw Exception(L"PDF 출력 가능 영역이 너무 작습니다.");
+
+        double scaleX = (double)pageW / (double)FDiagramWidth;
+        double scaleY = (double)pageH / (double)FDiagramHeight;
+        double printZoom = std::min(scaleX, scaleY);
+
+        if (printZoom > 1.0)
+            printZoom = 1.0;
+
+        if (printZoom < 0.60)
+            printZoom = 0.60;
+
+        Printer()->Canvas->Brush->Color = clWhite;
+        Printer()->Canvas->FillRect(
+            Rect(0, 0, Printer()->PageWidth, Printer()->PageHeight)
+        );
+
+        RenderDiagram(
+            Printer()->Canvas,
+            printZoom,
+            margin,
+            margin,
+            chkAttr->Checked
+        );
+    }
+    __finally
+    {
+        Printer()->EndDoc();
+    }
+}
+/*bool __fastcall TfrmLMFS::PrintToPdfDirect(const String &APdfFileName)
+{
+    int oldPrinterIndex = Printer()->PrinterIndex;
+    int pdfIndex = Printer()->Printers->IndexOf(L"Microsoft Print to PDF");
+
+    if (pdfIndex < 0)
+    {
+        Application->MessageBox(L"'Microsoft Print to PDF' 프린터를 찾을 수 없습니다.",
+                                L"PDF 출력", MB_OK | MB_ICONERROR);
+        return false;
+    }
+
+    wchar_t DeviceName[256] = {0};
+    wchar_t DriverName[256] = {0};
+	wchar_t PortName[256]   = {0};
+    THandle DeviceMode = 0;
+
+    try
+    {
+        Printer()->PrinterIndex = pdfIndex;
+        Printer()->GetPrinter(DeviceName, DriverName, PortName, DeviceMode);
+
+        Printer()->SetPrinter(DeviceName, DriverName, APdfFileName.c_str(), 0);
+        Printer()->Title = L"LMFS Diagram";
+
+        Printer()->BeginDoc();
+        try
+		{
+            // 여기서 실제 출력
+            RenderDiagram(Printer()->Canvas, 1.0, 40, 40, chkAttr->Checked);
+
+            // 여러 페이지가 필요하면:
+            // Printer()->NewPage();
+            // RenderDiagram(...);
+        }
+        __finally
+        {
+            Printer()->EndDoc();
+        }
+    }
+    __finally
+    {
+        Printer()->PrinterIndex = oldPrinterIndex;
+    }
+
+    return true;
+}
+*/
 //---------------------------------------------------------------------------
 // Send SearchPnu To LandArchive : 검색지번 보내기//
 //---------------------------------------------------------------------------
@@ -1396,29 +1937,6 @@ void __fastcall TfrmLMFS::StringGrid1DrawCell(TObject *Sender, int ACol, int ARo
     }
 }
 //---------------------------------------------------------------------------
-
-
-/* 폰트 변경
-C->Font->Name = L"맑은 고딕";
-C->Font->Size = 9;
-C->Font->Style = TFontStyles() << fsBold;
-C->Font->Color = clBlack;
-
-- 메인 지번 노드: 진한 테두리, 굵은 글꼴
-- 일반 지번 노드: 회색 테두리, 보통 글꼴
-- 변경사유/일자 라벨: 파란 글씨, 작은 폰트
-
-* 스타일용 멤버 변수
-int FNodeCornerRadius;
-TColor FNodeBorderColor;
-TColor FNodeFillColor;
-TColor FMainNodeFillColor;
-TColor FNodeFontColor;
-String FNodeFontName;
-int FNodeFontSize;
-bool FNodeFontBold;
-*/
-
 
 void __fastcall TfrmLMFS::SetDefaultThemes()
 {
@@ -1684,4 +2202,27 @@ void __fastcall TfrmLMFS::pnlColorClick(TObject *Sender)
 }
 //---------------------------------------------------------------------------
 
+
+void __fastcall TfrmLMFS::FormMouseWheel(TObject *Sender, TShiftState Shift, int WheelDelta,
+          TPoint &MousePos, bool &Handled)
+{
+    if (!Shift.Contains(ssCtrl))
+        return;
+
+    if (WheelDelta > 0)
+		FZoom *= 1.1;
+    else
+        FZoom /= 1.1;
+
+    if (FZoom < 0.25)
+        FZoom = 0.25;
+	if (FZoom > 2.0)//4.0
+		FZoom = 2.0;//4.0
+
+	//
+	UpdateCanvasSize();
+	PaintBox1->Repaint();
+    Handled = true;
+}
+//---------------------------------------------------------------------------
 

@@ -14,6 +14,7 @@ object frmLMFS: TfrmLMFS
   Position = poMainFormCenter
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnMouseWheel = FormMouseWheel
   OnShow = FormShow
   PixelsPerInch = 96
   TextHeight = 14
@@ -27,7 +28,6 @@ object frmLMFS: TfrmLMFS
     BevelOuter = bvNone
     BorderStyle = bsNone
     TabOrder = 0
-    ExplicitLeft = 159
     object PaintBox1: TPaintBox
       Left = 0
       Top = 0
@@ -111,7 +111,7 @@ object frmLMFS: TfrmLMFS
       Color = clCream
       ParentBackground = False
       TabOrder = 2
-      object btnSavePng: TButton
+      object btnSave: TButton
         AlignWithMargins = True
         Left = 4
         Top = 70
@@ -130,7 +130,7 @@ object frmLMFS: TfrmLMFS
         Font.Style = [fsBold]
         ParentFont = False
         TabOrder = 0
-        OnClick = btnSavePngClick
+        OnClick = btnSaveClick
       end
       object chkMain: TCheckBox
         AlignWithMargins = True
@@ -265,8 +265,6 @@ object frmLMFS: TfrmLMFS
         Color = clWhite
         ParentBackground = False
         TabOrder = 0
-        ExplicitWidth = 432
-        ExplicitHeight = 238
         object gbMain: TGroupBox
           AlignWithMargins = True
           Left = 10
@@ -280,7 +278,6 @@ object frmLMFS: TfrmLMFS
           Align = alTop
           Caption = ' '#44160#49353' '#51648#48264' '
           TabOrder = 0
-          ExplicitWidth = 412
           object btnColorMainBg: TImage
             AlignWithMargins = True
             Left = 68
@@ -1741,7 +1738,6 @@ object frmLMFS: TfrmLMFS
           Align = alTop
           Caption = ' '#44536' '#50808' '#51648#48264' '
           TabOrder = 1
-          ExplicitWidth = 412
           object btnColorSubBg: TImage
             AlignWithMargins = True
             Left = 68
@@ -3204,7 +3200,6 @@ object frmLMFS: TfrmLMFS
           Align = alTop
           Caption = ' '#51333#47785'+'#51068#51088'  '
           TabOrder = 2
-          ExplicitWidth = 412
           object btnColorEventBg: TImage
             AlignWithMargins = True
             Left = 68
@@ -4666,7 +4661,6 @@ object frmLMFS: TfrmLMFS
         Color = clWhite
         ParentBackground = False
         TabOrder = 1
-        ExplicitWidth = 432
         object btnSettingSave: TButton
           AlignWithMargins = True
           Left = 322
@@ -4687,7 +4681,6 @@ object frmLMFS: TfrmLMFS
           ParentFont = False
           TabOrder = 0
           OnClick = btnSettingSaveClick
-          ExplicitLeft = 324
         end
       end
     end
@@ -4695,5 +4688,9 @@ object frmLMFS: TfrmLMFS
   object ColorDialog1: TColorDialog
     Left = 24
     Top = 96
+  end
+  object SaveDialog1: TSaveDialog
+    Left = 776
+    Top = 432
   end
 end
