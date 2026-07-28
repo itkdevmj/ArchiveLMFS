@@ -761,12 +761,12 @@ void __fastcall TfrmLMFS::DrawLink(const TRenderContext &RC, TDiagramLink *L)
 	C->Pen->Style = psSolid;
 
 	//debug
-	if((L->FromNode->Pnu == "4471025021100580004" && L->ToNode->Pnu == "4471025021100580004")
+/*	if((L->FromNode->Pnu == "4471025021100580004" && L->ToNode->Pnu == "4471025021100580004")
 	|| (L->FromNode->Pnu == "4471025021100710010" && L->ToNode->Pnu == "4471025021100580004"))
 	{
 		int a = 1;
 	}
-
+*/
 
 	// 같은 지번을 재사용해서 depth를 건너뛴 경우:
 	// 출발 depth에서 바로 다음 depth 열까지 수평 이동한 후,
@@ -774,8 +774,8 @@ void __fastcall TfrmLMFS::DrawLink(const TRenderContext &RC, TDiagramLink *L)
 	// 마지막에 도착 노드로 수평 진입
 	if (L->FromNode->Pnu == L->ToNode->Pnu || (L->ToNode->Depth - L->FromNode->Depth > 1))
 	{
-		int bendDepth = L->FromNode->Depth + 1;
-		int bendX = LeftM + bendDepth * GapX;   // 다음 depth 열의 시작 X
+		//int bendDepth = L->FromNode->Depth + 1;
+		//int bendX = LeftM + bendDepth * GapX;   // 다음 depth 열의 시작 X
 		//my//int enterX = bendX - 10;                // 살짝 왼쪽에서 내려오게 조정 가능
 		//my//int enterX = bendX - NodeW/2;                // 살짝 왼쪽에서 내려오게 조정 가능
 		int enterX = x2 - NodeW/2;                // 살짝 왼쪽에서 내려오게 조정 가능
@@ -928,6 +928,52 @@ void __fastcall TfrmLMFS::DrawLink(const TRenderContext &RC, TDiagramLink *L)
 //void __fastcall TfrmLMFS::DrawDepthLabel(TCanvas *C, TDepthLabel *L)
 void __fastcall TfrmLMFS::DrawDepthLabel(const TRenderContext &RC, TDepthLabel *L)
 {
+    if (!L) return;
+
+    TCanvas *C = RC.Canvas;
+    const TNodeTheme th = GetThemeByKind(L->NodeKind);
+    TRect R = ScaleRect(L->Rect, RC);
+    int rr = ScaleValue(RC.BaseCornerRadius, RC, 3);
+
+    C->Brush->Style = bsSolid;
+    C->Brush->Color = th.BgColor;
+    C->Pen->Color = th.EdgeColor;
+    C->Pen->Width = ScaleValue(1, RC, 1);
+    C->Font->Color = th.FontColor;
+    C->Font->Name = L"맑은 고딕";
+    C->Font->Style = TFontStyles() << fsBold;
+    C->Font->Size = ScaleFont(9, RC, 7, 8, 14);
+
+    if (th.Rounded)
+        C->RoundRect(R.left, R.top, R.right, R.bottom, rr, rr);
+    else
+        C->Rectangle(R);
+
+    String text = GetDepthLabelText(L);
+
+    TRect outerR = R;
+    InflateRect(&outerR, -ScaleValue(4, RC, 2), -ScaleValue(2, RC, 1));
+
+    UINT flags = DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX;
+
+    SetTextColor(C->Handle, ColorToRGB(th.FontColor));
+    SetBkMode(C->Handle, TRANSPARENT);
+
+    TRect calcR = outerR;
+    DrawTextW(C->Handle, text.c_str(), -1, &calcR, flags | DT_CALCRECT);
+
+    int textH = calcR.bottom - calcR.top;
+    int boxH  = outerR.bottom - outerR.top;
+    int yOff  = (textH < boxH) ? ((boxH - textH) / 2) : 0;
+
+    TRect drawR = outerR;
+    drawR.top += yOff;
+    drawR.bottom = drawR.top + textH;
+
+    DrawTextW(C->Handle, text.c_str(), -1, &drawR, flags);
+}
+/*void __fastcall TfrmLMFS::DrawDepthLabel(const TRenderContext &RC, TDepthLabel *L)
+{
     TCanvas *C = RC.Canvas;
 	const TNodeTheme &th = GetThemeByKind(L->NodeKind);
 	TRect R = ScaleRect(L->Rect, RC);
@@ -978,11 +1024,72 @@ void __fastcall TfrmLMFS::DrawDepthLabel(const TRenderContext &RC, TDepthLabel *
 	//
 //??//	C->Brush->Style = bsSolid;
 }
-
+*/
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
 //void __fastcall TfrmLMFS::DrawNode(TCanvas *C, TParcelNode *N)
 void __fastcall TfrmLMFS::DrawNode(const TRenderContext &RC, TParcelNode *N)
+{
+    if (!N) return;
+
+    if (N->Pnu == FMainPnu)
+    {
+        N->Selected = true;
+        N->IsMain = true;
+        N->NodeKind = nkMainParcel;
+    }
+    else
+    {
+        N->Selected = false;
+        N->IsMain = false;
+        N->NodeKind = nkSubParcel;
+    }
+
+    TCanvas *C = RC.Canvas;
+    const TNodeTheme th = GetThemeByKind(N->NodeKind);
+    TRect R = ScaleRect(N->Rect, RC);
+    int rr = ScaleValue(RC.BaseCornerRadius, RC, 3);
+
+    C->Brush->Style = bsSolid;
+    C->Brush->Color = th.BgColor;
+    C->Pen->Width = N->Selected ? ScaleValue(2, RC, 1) : ScaleValue(1, RC, 1);
+    C->Pen->Color = th.EdgeColor;
+    C->Font->Color = th.FontColor;
+    C->Font->Name = L"나눔고딕";
+    C->Font->Size = ScaleFont(10, RC, 7, 8, 16);
+    C->Font->Style = TFontStyles() << fsBold;
+
+    if (th.Rounded)
+        C->RoundRect(R.left, R.top, R.right, R.bottom, rr, rr);
+    else
+        C->Rectangle(R);
+
+    String text = N->Caption;
+    if (RC.DrawAttr && !Trim(N->Attr).IsEmpty())
+        text = text + L"\r\n" + N->Attr;
+
+    TRect outerR = R;
+    InflateRect(&outerR, -ScaleValue(4, RC, 2), -ScaleValue(2, RC, 1));
+
+    UINT flags = DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_EDITCONTROL | DT_NOPREFIX;
+
+    SetTextColor(C->Handle, ColorToRGB(th.FontColor));
+    SetBkMode(C->Handle, TRANSPARENT);
+
+    TRect calcR = outerR;
+    DrawTextW(C->Handle, text.c_str(), -1, &calcR, flags | DT_CALCRECT);
+
+    int textH = calcR.bottom - calcR.top;
+    int boxH  = outerR.bottom - outerR.top;
+    int yOff  = (textH < boxH) ? ((boxH - textH) / 2) : 0;
+
+    TRect drawR = outerR;
+    drawR.top += yOff;
+    drawR.bottom = drawR.top + textH;
+
+    DrawTextW(C->Handle, text.c_str(), -1, &drawR, flags);
+}
+/*void __fastcall TfrmLMFS::DrawNode(const TRenderContext &RC, TParcelNode *N)
 {
     if (!N) return;
 
@@ -1045,6 +1152,7 @@ void __fastcall TfrmLMFS::DrawNode(const TRenderContext &RC, TParcelNode *N)
 
 	C->Brush->Style = bsSolid;
 }
+*/
 
 //---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
@@ -1696,9 +1804,6 @@ void __fastcall TfrmLMFS::btnSaveClick(TObject *Sender)
 */
 
 	ExportToPdfByPrinter();
-	msg += L"[PDF]\r\n";
-	msg += L"Microsoft Print to PDF 저장창에서 파일명과 위치를 선택해 저장해 주세요.\r\n\r\n";
-	ShowMessage(msg);
 }
 
 //---------------------------------------------------------------------------
@@ -1713,41 +1818,54 @@ void __fastcall TfrmLMFS::ExportToPdfByPrinter()
 
     Printer()->PrinterIndex = pdfIdx;
     Printer()->Orientation = poLandscape;
-    Printer()->Title = L"Diagram Export";
+	//Printer()->Title = ((FMainJibun == NULL) ? L"Diagram Export" : FMainJibun);
+	if(FMainJibun == "")
+		Printer()->Title = L"Diagram Export";
+	else
+		Printer()->Title = FMainJibun;
+
+    const int margin = 120;
 
     Printer()->BeginDoc();
     try
     {
-        const int margin = 120;
-
         int pageW = Printer()->PageWidth  - margin * 2;
         int pageH = Printer()->PageHeight - margin * 2;
 
         if (pageW <= 0 || pageH <= 0)
             throw Exception(L"PDF 출력 가능 영역이 너무 작습니다.");
 
-        double scaleX = (double)pageW / (double)FDiagramWidth;
-        double scaleY = (double)pageH / (double)FDiagramHeight;
-        double printZoom = std::min(scaleX, scaleY);
+        double zoomY = (double)pageH / (double)FDiagramHeight;
+        double printZoom = zoomY;
 
-        if (printZoom > 1.0)
-            printZoom = 1.0;
+        if (printZoom > 0.80) printZoom = 0.80;
+        if (printZoom < 0.70) printZoom = 0.70;
 
-        if (printZoom < 0.60)
-            printZoom = 0.60;
+        int logicalPageW = (int)(pageW / printZoom);
+        if (logicalPageW <= 0)
+            throw Exception(L"페이지 폭 계산 오류");
 
-        Printer()->Canvas->Brush->Color = clWhite;
-        Printer()->Canvas->FillRect(
-            Rect(0, 0, Printer()->PageWidth, Printer()->PageHeight)
-        );
+        int pageCount = (FDiagramWidth + logicalPageW - 1) / logicalPageW;
+        if (pageCount < 1) pageCount = 1;
 
-        RenderDiagram(
-            Printer()->Canvas,
-            printZoom,
-            margin,
-            margin,
-            chkAttr->Checked
-        );
+        for (int page = 0; page < pageCount; ++page)
+        {
+            if (page > 0)
+                Printer()->NewPage();
+
+            Printer()->Canvas->Brush->Color = clWhite;
+            Printer()->Canvas->FillRect(Rect(0, 0, Printer()->PageWidth, Printer()->PageHeight));
+
+            int logicalOffsetX = page * logicalPageW;
+
+            RenderDiagram(
+                Printer()->Canvas,
+                printZoom,
+                margin - (int)IRound(logicalOffsetX * printZoom),
+                margin,
+                chkAttr->Checked
+            );
+        }
     }
     __finally
     {
